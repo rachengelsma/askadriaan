@@ -13,19 +13,16 @@
             padding: 0;
             overflow: hidden;
             height: 100%;
-        }
-
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: #F3F3F4;
-            display: flex;
-            justify-content: center;
-            align-items: center;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
         }
 
+        /* Desktop: centered card */
         #webchat-container {
+            position: relative;
             width: 420px;
             height: 620px;
+            margin: 40px auto;
             border-radius: 20px;
             overflow: hidden;
             box-shadow: 0 10px 40px rgba(28,28,28,0.12);
@@ -36,20 +33,19 @@
             min-height: 400px;
             display: flex;
             flex-direction: column;
-            position: relative;
         }
 
+        /* Mobile: fixed to visible viewport — JS controls top + height */
         @media (max-width: 768px) {
-            body {
-                align-items: stretch;
-                justify-content: stretch;
-            }
             #webchat-container {
+                position: fixed;
+                left: 0;
                 width: 100%;
                 border-radius: 0;
                 border: none;
                 resize: none;
                 min-height: unset;
+                margin: 0;
             }
         }
 
@@ -70,11 +66,7 @@
             font-weight: 700;
             letter-spacing: -0.5px;
         }
-        #header p {
-            margin: 0;
-            color: #6b6b6b;
-            font-size: 12px;
-        }
+        #header p { margin: 0; color: #6b6b6b; font-size: 12px; }
 
         #fullscreen-btn {
             background: #f5f5f5;
@@ -100,16 +92,40 @@
             overflow: hidden;
         }
 
-        /* 16px prevents iOS auto-zoom on all browsers */
+        /* 16px prevents iOS auto-zoom */
         #webchat input[type="text"],
         #webchat textarea {
             font-size: 16px !important;
             touch-action: manipulation;
         }
 
+        /* Floating keyboard button — mobile only */
+        #keyboard-btn {
+            display: none;
+        }
+        @media (max-width: 768px) {
+            #keyboard-btn {
+                display: flex;
+                position: absolute;
+                bottom: 58px; /* sits just above the send box */
+                right: 12px;
+                width: 40px;
+                height: 40px;
+                background: #DA2037;
+                border: none;
+                border-radius: 50%;
+                align-items: center;
+                justify-content: center;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+                cursor: pointer;
+                z-index: 100;
+                touch-action: manipulation;
+            }
+        }
+
         #webchat-container.fullscreen {
-            position: fixed;
-            top: 0; left: 0;
+            position: fixed !important;
+            left: 0;
             width: 100vw !important;
             border-radius: 0;
             z-index: 9999;
@@ -130,6 +146,14 @@
             </button>
         </div>
         <div id="webchat" role="main"></div>
+
+        <!-- Keyboard button: tap to open keyboard -->
+        <button id="keyboard-btn" title="Open keyboard" aria-label="Open keyboard">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect x="2" y="6" width="20" height="13" rx="2" stroke="white" stroke-width="1.8"/>
+                <path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M6 14h.01M10 14h4M18 14h.01" stroke="white" stroke-width="1.8" stroke-linecap="round"/>
+            </svg>
+        </button>
     </div>
 
     <script>
@@ -168,65 +192,67 @@
             groupTimestamp: 300000
         };
 
-        // Set container height using visualViewport (works on all mobile browsers)
-        function setContainerHeight() {
-            if (window.innerWidth > 768) return;
-            const h = window.visualViewport ? window.visualViewport.height : window.innerHeight;
-            document.getElementById('webchat-container').style.height = h + 'px';
-        }
-        if (window.visualViewport) {
-            window.visualViewport.addEventListener('resize', setContainerHeight);
-        }
-        window.addEventListener('resize', setContainerHeight);
-        setContainerHeight();
+        // ── Pin container to the visible viewport so keyboard never pushes it off screen
+        function isMobile() { return window.innerWidth <= 768; }
 
-        function attachSendBehavior() {
+        function pinToViewport() {
+            if (!isMobile()) return;
+            const vv = window.visualViewport;
+            const top = vv ? vv.offsetTop : 0;
+            const h   = vv ? vv.height    : window.innerHeight;
+            const c   = document.getElementById('webchat-container');
+            c.style.top    = top + 'px';
+            c.style.height = h   + 'px';
+        }
+
+        if (window.visualViewport) {
+            window.visualViewport.addEventListener('resize', pinToViewport);
+            window.visualViewport.addEventListener('scroll', pinToViewport);
+        }
+        window.addEventListener('resize', pinToViewport);
+        pinToViewport();
+
+        // ── Shared reference to the send box input
+        let sendInput = null;
+
+        function attachBehavior() {
             const webchatEl = document.getElementById('webchat');
-            const observer = new MutationObserver(() => {
+            const observer  = new MutationObserver(() => {
                 const input = webchatEl.querySelector('input[type="text"], textarea');
                 if (!input) return;
                 observer.disconnect();
+                sendInput = input;
 
-                // Find the send button (rendered by WebChat after the input)
-                function getSendBtn() {
-                    return webchatEl.querySelector('button[type="submit"], button[aria-label="Send"]');
-                }
-
-                // Blur the input after sending so next tap opens the keyboard fresh
+                // Blur after sending so next tap on the input opens keyboard fresh
                 function blurAfterSend() {
-                    setTimeout(() => input.blur(), 50);
+                    setTimeout(() => input.blur(), 80);
                 }
-
-                // Detect Enter key to send
-                input.addEventListener('keydown', function(e) {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                        blurAfterSend();
-                    }
+                input.addEventListener('keydown', e => {
+                    if (e.key === 'Enter' && !e.shiftKey) blurAfterSend();
                 });
-
-                // Detect send button tap — use event delegation on the webchat container
-                // so it works even if the button re-renders
-                webchatEl.addEventListener('click', function(e) {
-                    const btn = e.target.closest('button[type="submit"], button[aria-label="Send"]');
-                    if (btn) blurAfterSend();
+                webchatEl.addEventListener('click', e => {
+                    if (e.target.closest('button[type="submit"], button[aria-label="Send"]')) blurAfterSend();
                 });
-
-                webchatEl.addEventListener('touchend', function(e) {
-                    const btn = e.target.closest('button[type="submit"], button[aria-label="Send"]');
-                    if (btn) blurAfterSend();
+                webchatEl.addEventListener('touchend', e => {
+                    if (e.target.closest('button[type="submit"], button[aria-label="Send"]')) blurAfterSend();
                 }, { passive: true });
             });
-
             observer.observe(webchatEl, { childList: true, subtree: true });
         }
 
+        // ── Keyboard button: direct user-gesture focus — always opens keyboard
+        document.getElementById('keyboard-btn').addEventListener('click', () => {
+            if (sendInput) sendInput.focus();
+        });
+
+        // ── Init
         async function initWebChat() {
             try {
                 const res = await fetch(tokenEndpoint);
                 const { token } = await res.json();
                 const directLine = window.WebChat.createDirectLine({ token });
                 window.WebChat.renderWebChat({ directLine, styleOptions }, document.getElementById('webchat'));
-                attachSendBehavior();
+                attachBehavior();
             } catch (err) {
                 console.error('Error initializing webchat:', err);
                 document.getElementById('webchat').innerHTML =
@@ -237,9 +263,8 @@
         initWebChat();
 
         function toggleFullscreen() {
-            const c = document.getElementById('webchat-container');
-            c.classList.toggle('fullscreen');
-            setContainerHeight();
+            document.getElementById('webchat-container').classList.toggle('fullscreen');
+            pinToViewport();
         }
     </script>
 </body>
