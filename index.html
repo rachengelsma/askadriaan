@@ -39,7 +39,6 @@
             position: relative;
         }
 
-        /* On mobile, JS will set the exact height via visualViewport */
         @media (max-width: 768px) {
             body {
                 align-items: stretch;
@@ -51,7 +50,6 @@
                 border: none;
                 resize: none;
                 min-height: unset;
-                /* height will be set by JS */
             }
         }
 
@@ -102,11 +100,11 @@
             overflow: hidden;
         }
 
-        /* 16px prevents iOS auto-zoom and keyboard suppression on ALL browsers */
+        /* 16px prevents iOS auto-zoom on all browsers */
         #webchat input[type="text"],
         #webchat textarea {
             font-size: 16px !important;
-            touch-action: manipulation; /* removes 300ms tap delay on Android */
+            touch-action: manipulation;
         }
 
         #webchat-container.fullscreen {
@@ -170,57 +168,65 @@
             groupTimestamp: 300000
         };
 
-        // ─── Viewport height: use visualViewport API (works on all modern mobile browsers)
-        function isMobile() {
-            return window.innerWidth <= 768;
-        }
-
+        // Set container height using visualViewport (works on all mobile browsers)
         function setContainerHeight() {
-            if (!isMobile()) return;
+            if (window.innerWidth > 768) return;
             const h = window.visualViewport ? window.visualViewport.height : window.innerHeight;
             document.getElementById('webchat-container').style.height = h + 'px';
         }
-
-        // Update on resize AND when virtual keyboard opens/closes
         if (window.visualViewport) {
             window.visualViewport.addEventListener('resize', setContainerHeight);
-            window.visualViewport.addEventListener('scroll', setContainerHeight);
         }
         window.addEventListener('resize', setContainerHeight);
         setContainerHeight();
 
-        // ─── Keyboard fix: attach to send box once WebChat renders it
-        function attachKeyboardFix() {
+        function attachSendBehavior() {
             const webchatEl = document.getElementById('webchat');
             const observer = new MutationObserver(() => {
                 const input = webchatEl.querySelector('input[type="text"], textarea');
                 if (!input) return;
                 observer.disconnect();
 
-                // pointerdown fires before autofill/paste popup on ALL platforms
-                // (iOS Safari, iOS Chrome, Android Chrome, Firefox, Samsung Internet)
-                input.addEventListener('pointerdown', function(e) {
-                    // Small timeout lets the event complete, then steal focus
-                    setTimeout(() => this.focus(), 0);
+                // Find the send button (rendered by WebChat after the input)
+                function getSendBtn() {
+                    return webchatEl.querySelector('button[type="submit"], button[aria-label="Send"]');
+                }
+
+                // Blur the input after sending so next tap opens the keyboard fresh
+                function blurAfterSend() {
+                    setTimeout(() => input.blur(), 50);
+                }
+
+                // Detect Enter key to send
+                input.addEventListener('keydown', function(e) {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                        blurAfterSend();
+                    }
                 });
 
-                // Belt-and-suspenders: also handle touchend for iOS Safari edge cases
-                input.addEventListener('touchend', function(e) {
-                    e.preventDefault();
-                    this.focus();
-                }, { passive: false });
+                // Detect send button tap — use event delegation on the webchat container
+                // so it works even if the button re-renders
+                webchatEl.addEventListener('click', function(e) {
+                    const btn = e.target.closest('button[type="submit"], button[aria-label="Send"]');
+                    if (btn) blurAfterSend();
+                });
+
+                webchatEl.addEventListener('touchend', function(e) {
+                    const btn = e.target.closest('button[type="submit"], button[aria-label="Send"]');
+                    if (btn) blurAfterSend();
+                }, { passive: true });
             });
+
             observer.observe(webchatEl, { childList: true, subtree: true });
         }
 
-        // ─── Init
         async function initWebChat() {
             try {
                 const res = await fetch(tokenEndpoint);
                 const { token } = await res.json();
                 const directLine = window.WebChat.createDirectLine({ token });
                 window.WebChat.renderWebChat({ directLine, styleOptions }, document.getElementById('webchat'));
-                attachKeyboardFix();
+                attachSendBehavior();
             } catch (err) {
                 console.error('Error initializing webchat:', err);
                 document.getElementById('webchat').innerHTML =
@@ -233,11 +239,7 @@
         function toggleFullscreen() {
             const c = document.getElementById('webchat-container');
             c.classList.toggle('fullscreen');
-            if (c.classList.contains('fullscreen')) {
-                c.style.height = (window.visualViewport ? window.visualViewport.height : window.innerHeight) + 'px';
-            } else {
-                setContainerHeight();
-            }
+            setContainerHeight();
         }
     </script>
 </body>
