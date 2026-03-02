@@ -180,10 +180,39 @@
                     },
                     document.getElementById('webchat')
                 );
+
+                // Fix: force keyboard open on mobile when send box is tapped
+                attachSendBoxFocusFix();
+
             } catch (err) {
                 console.error('Error initializing webchat:', err);
                 document.getElementById('webchat').innerHTML = '<p style="padding: 20px; text-align: center; color: #DA2037;">Unable to load chat. Please refresh the page.</p>';
             }
+        }
+
+        function attachSendBoxFocusFix() {
+            const webchatEl = document.getElementById('webchat');
+
+            // Use a MutationObserver to wait for WebChat to render its input
+            const observer = new MutationObserver(() => {
+                const input = webchatEl.querySelector('input[type="text"], textarea');
+                if (input) {
+                    observer.disconnect();
+
+                    // On touchstart, immediately call focus() before the browser
+                    // shows the paste/autofill popup and swallows the tap
+                    input.addEventListener('touchstart', function(e) {
+                        this.focus();
+                    }, { passive: true });
+
+                    // Belt-and-suspenders: also on click
+                    input.addEventListener('click', function() {
+                        this.focus();
+                    });
+                }
+            });
+
+            observer.observe(webchatEl, { childList: true, subtree: true });
         }
 
         initWebChat();
