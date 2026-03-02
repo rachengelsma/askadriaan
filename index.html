@@ -6,77 +6,78 @@
     <title>AskAdriaan - PRTS Handbook Assistant</title>
     <script src="https://cdn.botframework.com/botframework-webchat/latest/webchat.js"></script>
     <style>
-        body {
+        * { box-sizing: border-box; }
+
+        html, body {
             margin: 0;
-            padding: 20px;
+            padding: 0;
+            overflow: hidden;
+            height: 100%;
+        }
+
+        body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: #F3F3F4;
             display: flex;
             justify-content: center;
             align-items: center;
-            min-height: 100vh;
-            -webkit-overflow-scrolling: touch;
         }
+
         #webchat-container {
             width: 420px;
             height: 620px;
             border-radius: 20px;
             overflow: hidden;
-            box-shadow: 0 10px 40px rgba(28, 28, 28, 0.12);
+            box-shadow: 0 10px 40px rgba(28,28,28,0.12);
             border: 1px solid #e0e0e0;
             background: white;
             resize: both;
             min-width: 320px;
             min-height: 400px;
-            max-width: none;
-            max-height: none;
             display: flex;
             flex-direction: column;
             position: relative;
         }
+
+        /* On mobile, JS will set the exact height via visualViewport */
         @media (max-width: 768px) {
             body {
-                padding: 0;
+                align-items: stretch;
+                justify-content: stretch;
             }
             #webchat-container {
-                width: 100vw;
-                height: 100vh;
+                width: 100%;
                 border-radius: 0;
                 border: none;
                 resize: none;
-                min-height: 100vh;
-            }
-            #header {
-                position: sticky;
-                top: 0;
-                z-index: 100;
+                min-height: unset;
+                /* height will be set by JS */
             }
         }
+
         #header {
             background: white;
-            padding: 24px 24px 16px 24px;
+            padding: 16px 24px 12px 24px;
             display: flex;
             justify-content: space-between;
-            align-items: flex-start;
+            align-items: center;
             border-bottom: 1px solid #f0f0f0;
             flex-shrink: 0;
         }
-        #header-content {
-            flex: 1;
-        }
+        #header-content { flex: 1; }
         #header h1 {
-            margin: 0 0 4px 0;
+            margin: 0 0 2px 0;
             color: #DA2037;
-            font-size: 28px;
+            font-size: 24px;
             font-weight: 700;
             letter-spacing: -0.5px;
         }
         #header p {
             margin: 0;
             color: #6b6b6b;
-            font-size: 13px;
-            font-weight: 400;
+            font-size: 12px;
         }
+
         #fullscreen-btn {
             background: #f5f5f5;
             border: none;
@@ -85,7 +86,6 @@
             height: 36px;
             border-radius: 10px;
             cursor: pointer;
-            font-size: 16px;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -93,22 +93,26 @@
             flex-shrink: 0;
             margin-left: 12px;
         }
-        #fullscreen-btn:hover {
-            background: #e8e8e8;
-            color: #DA2037;
-        }
+        #fullscreen-btn:hover { background: #e8e8e8; color: #DA2037; }
+
         #webchat {
             flex: 1;
             width: 100%;
             min-height: 0;
+            overflow: hidden;
         }
+
+        /* 16px prevents iOS auto-zoom and keyboard suppression on ALL browsers */
+        #webchat input[type="text"],
+        #webchat textarea {
+            font-size: 16px !important;
+            touch-action: manipulation; /* removes 300ms tap delay on Android */
+        }
+
         #webchat-container.fullscreen {
             position: fixed;
-            top: 0;
-            left: 0;
+            top: 0; left: 0;
             width: 100vw !important;
-            height: 100vh !important;
-            max-width: none;
             border-radius: 0;
             z-index: 9999;
         }
@@ -132,7 +136,7 @@
 
     <script>
         const tokenEndpoint = 'https://default61d6eb67cbe542ee8a1373c46652bd.71.environment.api.powerplatform.com/powervirtualagents/botsbyschema/cr2ce_askAdrian/directline/token?api-version=2022-03-01-preview';
-        
+
         const styleOptions = {
             accent: '#DA2037',
             backgroundColor: 'white',
@@ -166,60 +170,74 @@
             groupTimestamp: 300000
         };
 
+        // ─── Viewport height: use visualViewport API (works on all modern mobile browsers)
+        function isMobile() {
+            return window.innerWidth <= 768;
+        }
+
+        function setContainerHeight() {
+            if (!isMobile()) return;
+            const h = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+            document.getElementById('webchat-container').style.height = h + 'px';
+        }
+
+        // Update on resize AND when virtual keyboard opens/closes
+        if (window.visualViewport) {
+            window.visualViewport.addEventListener('resize', setContainerHeight);
+            window.visualViewport.addEventListener('scroll', setContainerHeight);
+        }
+        window.addEventListener('resize', setContainerHeight);
+        setContainerHeight();
+
+        // ─── Keyboard fix: attach to send box once WebChat renders it
+        function attachKeyboardFix() {
+            const webchatEl = document.getElementById('webchat');
+            const observer = new MutationObserver(() => {
+                const input = webchatEl.querySelector('input[type="text"], textarea');
+                if (!input) return;
+                observer.disconnect();
+
+                // pointerdown fires before autofill/paste popup on ALL platforms
+                // (iOS Safari, iOS Chrome, Android Chrome, Firefox, Samsung Internet)
+                input.addEventListener('pointerdown', function(e) {
+                    // Small timeout lets the event complete, then steal focus
+                    setTimeout(() => this.focus(), 0);
+                });
+
+                // Belt-and-suspenders: also handle touchend for iOS Safari edge cases
+                input.addEventListener('touchend', function(e) {
+                    e.preventDefault();
+                    this.focus();
+                }, { passive: false });
+            });
+            observer.observe(webchatEl, { childList: true, subtree: true });
+        }
+
+        // ─── Init
         async function initWebChat() {
             try {
                 const res = await fetch(tokenEndpoint);
                 const { token } = await res.json();
-                
                 const directLine = window.WebChat.createDirectLine({ token });
-                
-                window.WebChat.renderWebChat(
-                    {
-                        directLine: directLine,
-                        styleOptions: styleOptions
-                    },
-                    document.getElementById('webchat')
-                );
-
-                // Fix: force keyboard open on mobile when send box is tapped
-                attachSendBoxFocusFix();
-
+                window.WebChat.renderWebChat({ directLine, styleOptions }, document.getElementById('webchat'));
+                attachKeyboardFix();
             } catch (err) {
                 console.error('Error initializing webchat:', err);
-                document.getElementById('webchat').innerHTML = '<p style="padding: 20px; text-align: center; color: #DA2037;">Unable to load chat. Please refresh the page.</p>';
+                document.getElementById('webchat').innerHTML =
+                    '<p style="padding:20px;text-align:center;color:#DA2037;">Unable to load chat. Please refresh the page.</p>';
             }
         }
 
-        function attachSendBoxFocusFix() {
-            const webchatEl = document.getElementById('webchat');
-
-            // Use a MutationObserver to wait for WebChat to render its input
-            const observer = new MutationObserver(() => {
-                const input = webchatEl.querySelector('input[type="text"], textarea');
-                if (input) {
-                    observer.disconnect();
-
-                    // On touchstart, immediately call focus() before the browser
-                    // shows the paste/autofill popup and swallows the tap
-                    input.addEventListener('touchstart', function(e) {
-                        this.focus();
-                    }, { passive: true });
-
-                    // Belt-and-suspenders: also on click
-                    input.addEventListener('click', function() {
-                        this.focus();
-                    });
-                }
-            });
-
-            observer.observe(webchatEl, { childList: true, subtree: true });
-        }
-
         initWebChat();
-        
+
         function toggleFullscreen() {
-            const container = document.getElementById('webchat-container');
-            container.classList.toggle('fullscreen');
+            const c = document.getElementById('webchat-container');
+            c.classList.toggle('fullscreen');
+            if (c.classList.contains('fullscreen')) {
+                c.style.height = (window.visualViewport ? window.visualViewport.height : window.innerHeight) + 'px';
+            } else {
+                setContainerHeight();
+            }
         }
     </script>
 </body>
