@@ -15,6 +15,7 @@
             justify-content: center;
             align-items: center;
             min-height: 100vh;
+            -webkit-overflow-scrolling: touch;
         }
         #webchat-container {
             width: 420px;
@@ -31,6 +32,25 @@
             max-height: none;
             display: flex;
             flex-direction: column;
+            position: relative;
+        }
+        @media (max-width: 768px) {
+            body {
+                padding: 0;
+            }
+            #webchat-container {
+                width: 100vw;
+                height: 100vh;
+                border-radius: 0;
+                border: none;
+                resize: none;
+                min-height: 100vh;
+            }
+            #header {
+                position: sticky;
+                top: 0;
+                z-index: 100;
+            }
         }
         #header {
             background: white;
